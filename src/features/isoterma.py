@@ -1,6 +1,17 @@
 import numpy as np
 from filterpy.kalman import KalmanFilter
 
+def filtrar_ruido(ze, vf):
+    ze_filtered = np.where(ze >= 12, ze, 12)
+    vf_filtered = np.where(ze >= 12, vf, 2)
+    return ze_filtered, vf_filtered
+
+def ajustar_largo(array, n):
+    array = np.array(array)
+    if len(array) < n:
+        return np.pad(array, (n - len(array), 0), mode='edge')
+    return array[:n]
+
 def calcular_gradiente(datos, marco=5):
     pesos = np.array([marco - i for i in range(marco)])  
     pesos = pesos / np.sum(pesos)                        
@@ -45,3 +56,12 @@ def aplicar_filtro_kalman(alturas_obs, gradiente, heights_ajustado, delta_t=1):
         alturas_filtradas.append(altura_actual)
     
     return np.array(alturas_filtradas)
+
+def reporte_sistematizacion(iso_ze, iso_vf, dia):
+    diferencias = iso_ze - iso_vf
+    correlacion = np.corrcoef(iso_ze, iso_vf)[0,1]
+    print(f"--- Reporte Sistematizacion: {dia} ---")
+    print(f"Correlacion Ze/Vf: {correlacion:.3f}")
+    print(f"Diferencia Promedio: {np.mean(diferencias):.2f} m")
+    print(f"Desviacion Estandar: {np.std(diferencias):.2f} m")
+    print(f"Casos extremos (>500m): {np.sum(np.abs(diferencias) > 500)}")

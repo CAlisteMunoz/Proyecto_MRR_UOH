@@ -1,15 +1,17 @@
-# Datos y resultados
+# Resultados y Datos (No se suben al repo)
 results/
 data/raw/
 *.nc
 
-# Logs y Slurm
+# Logs de Slurm y ejecución
 logs/
 *.err
 *.log
 slurm-*
 
-# Python
+# Basura de sistema y Python
 __pycache__/
 *.pyc
-.venv/
+.ipynb_checkpoints/
+*-checkpoint.*
+.DS_Store
