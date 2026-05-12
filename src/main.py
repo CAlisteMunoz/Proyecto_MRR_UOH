@@ -2,60 +2,60 @@ import sys
 from pathlib import Path
 import numpy as np
 
-# Configuración de entorno
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
-from config import AÑOS_VALIDOS, DATA_OUT
+from config import AÑOS_VALIDOS, DATA_RAW, DATA_OUT
 from src.data.loader import obtener_archivos_por_año, leer_netcdf
 from src.features.isoterma import calcular_gradiente, aplicar_filtro_kalman, filtrar_ruido
 from src.visualization.plots import generar_plot_isoterma
 
 def run():
-    print("Iniciando procesamiento secuencial de isotermas...")
-    
+    print("Iniciando procesamiento universal...")
     for año in AÑOS_VALIDOS:
-        # 1. Obtener todos los archivos del año actual
-        archivos = obtener_archivos_por_año(año)
+        archivos = obtener_archivos_por_año(año, DATA_RAW)
         output_dir = DATA_OUT / str(año)
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        print(f"--- Procesando Año {año}: {len(archivos)} archivos ---")
-        
-        for i, ruta in enumerate(archivos, 1):
+        for ruta in archivos:
             nombre = ruta.stem
             img_path = output_dir / f"Isoterma_{nombre}.png"
-            
-            # Saltar si el plot ya fue generado anteriormente
-            if img_path.exists():
-                continue
-            
+            if img_path.exists(): continue
+                
             try:
                 with leer_netcdf(ruta) as ds:
-                    # Preparación de datos
+                    # Extracción robusta de variables
                     ze_raw = ds['attenuated_radar_reflectivity'].values
                     vf_raw = ds['fall_velocity'].values
                     
-                    # Filtro de ruido (Referencia: >12 dBZ)
-                    ze, _ = filtrar_ruido(ze_raw, vf_raw)
+                    # Manejo dinámico de alturas (msnm + 500)
+                    if ds.height.ndim > 1:
+                        heights_msnm = ds.height[0,:].values + 500
+                    else:
+                        heights_msnm = ds.height.values + 500
                     
-                    # Cálculo de gradientes y filtro de Kalman
-                    grad = calcular_gradiente(ze.T)
-                    heights_msnm = ds.height[0,:] + 500
-                    iso_inicial = np.full(ze.shape[0], 2500.0)
+                    # Asegurar que Ze esté orientado correctamente (Vertical, Tiempo)
+                    # Si ze_raw es (Time, Height), lo transponemos
+                    if ze_raw.shape[0] == len(ds.time):
+                        ze_proc = ze_raw.T
+                    else:
+                        ze_proc = ze_raw
+
+                    # 1. Filtro de Ruido
+                    ze_clean, _ = filtrar_ruido(ze_proc.T, vf_raw.T)
                     
+                    # 2. Gradiente (usa Ze transpuesto para la lógica de niveles)
+                    grad = calcular_gradiente(ze_clean.T)
+                    
+                    # 3. Kalman
+                    iso_inicial = np.full(ze_clean.shape[0], 2500.0)
                     iso_final = aplicar_filtro_kalman(iso_inicial, grad, heights_msnm)
                     
-                    # Generación del gráfico individual
+                    # 4. Plot
                     generar_plot_isoterma(ds, iso_final, img_path, nombre)
-                    
-                    if i % 10 == 0:
-                        print(f"[{año}] Progreso: {i}/{len(archivos)} archivos finalizados.")
-                        
+                    print(f"Éxito: {nombre}")
             except Exception as e:
-                print(f"Error en archivo {nombre} ({año}): {e}")
-
-    print("Procesamiento masivo completado con éxito.")
+                print(f"Fallo en {nombre}: {e}")
 
 if __name__ == "__main__":
     run()
