@@ -1,0 +1,15 @@
+# Datos y resultados
+results/
+data/raw/
+*.nc
+
+# Logs y Slurm
+logs/
+*.err
+*.log
+slurm-*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
