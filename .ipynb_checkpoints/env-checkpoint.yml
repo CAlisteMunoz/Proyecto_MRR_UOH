@@ -12,7 +12,7 @@ dependencies:
   - xarray
   - netcdf4
   
-  # Visualización (Manteniendo las versiones de tu tutorial)
+  # Visualización
   - matplotlib=3.4.3
   - proplot=0.9.7
   - seaborn
