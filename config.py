@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.absolute()
-DATA_RAW = Path("/mnt/beegfs/labs/ESciences/data/MRR/NetCDF")
+DATA_RAW = Path("/mnt/beegfs/labs/pd1/MRR/Proyecto_MRR_UOH/data/raw/NetCDF")
 DATA_OUT = PROJECT_ROOT / "results" / "isoterma_plots"
 LOGS_DIR = PROJECT_ROOT / "logs"
 
