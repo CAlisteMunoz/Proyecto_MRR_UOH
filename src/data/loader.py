@@ -8,5 +8,5 @@ def obtener_archivos_por_año(año, ruta_base):
     return sorted(list(ruta_año.glob("*.nc")))
 
 def leer_netcdf(ruta):
-    # Abrimos y forzamos la carga en memoria para evitar errores de puntero
-    return xr.open_dataset(ruta, decode_times=False).load()
+    # Carga en memoria decodificando los tiempos automáticamente
+    return xr.open_dataset(ruta).load()

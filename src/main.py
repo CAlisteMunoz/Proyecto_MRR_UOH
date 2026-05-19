@@ -1,41 +1,38 @@
 import sys
 from pathlib import Path
 import numpy as np
+import pandas as pd
 from config import AÑOS_VALIDOS, DATA_RAW, DATA_OUT
 from src.data.loader import obtener_archivos_por_año, leer_netcdf
-from src.features.isoterma import calcular_gradiente, aplicar_filtro_kalman, filtrar_ruido
-from src.visualization.plots import generar_plot_mrr_dual
+from src.features.isoterma import procesar_dia_completo
+from src.visualization.plots import generar_grafico_maestro
 
 def run():
+    print("Iniciando pipeline global estructurado...")
     for año in AÑOS_VALIDOS:
         archivos = obtener_archivos_por_año(año, DATA_RAW)
-        out = DATA_OUT / str(año)
-        out.mkdir(parents=True, exist_ok=True)
+        out_dir = DATA_OUT / str(año)
+        out_dir.mkdir(parents=True, exist_ok=True)
         
         for ruta in archivos:
             nombre = ruta.stem
-            img_path = out / f"Isoterma_{nombre}.png"
+            img_path = out_dir / f"Isoterma_{nombre}.png"
             if img_path.exists(): continue
             
             try:
                 with leer_netcdf(ruta) as ds:
-                    h = (ds.height.values[0,:] if ds.height.ndim > 1 else ds.height.values) + 500
-                    ze_raw, vf_raw = ds['attenuated_radar_reflectivity'].values, ds['fall_velocity'].values
+                    times = pd.to_datetime(ds.time.values)
+                    xlim = [times[0], times[-1]]
                     
-                    # Preparar datos y gradientes
-                    # Nota: Aseguramos orientación (Niveles, Tiempo)
-                    ze_c, vf_c = filtrar_ruido(ze_raw.T if ze_raw.shape[0] == len(ds.time) else ze_raw, 
-                                               vf_raw.T if vf_raw.shape[0] == len(ds.time) else vf_raw)
+                    h_vals = ds.height.values
+                    heights_raw = h_vals[0, :] if h_vals.ndim > 1 else h_vals
                     
-                    grad_ze = calcular_gradiente(ze_c)
-                    grad_vf = calcular_gradiente(vf_c)
+                    Ze_raw = ds['attenuated_radar_reflectivity'].values
+                    Vf_raw = ds['fall_velocity'].values
                     
-                    # Calcular isotermas para ambos paneles
-                    iso_z, var_z = aplicar_filtro_kalman(np.full(ze_c.shape[1], 2500.0), grad_ze, h)
-                    iso_v, var_v = aplicar_filtro_kalman(np.full(vf_c.shape[1], 2500.0), grad_vf, h)
-                    
-                    generar_plot_mrr_dual(ds, iso_z, var_z, iso_v, var_v, img_path, nombre)
-                    print(f"Completado: {nombre}")
+                    isoterma_data = procesar_dia_completo(Ze_raw, Vf_raw, heights_raw, len(times))
+                    generar_grafico_maestro(xlim, times, heights_raw, Ze_raw, Vf_raw, isoterma_data, img_path)
+                    print(f"Completado con éxito: {nombre}")
             except Exception as e:
                 print(f"Error en {nombre}: {e}")
 
