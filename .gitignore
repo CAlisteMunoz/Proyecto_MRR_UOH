@@ -1,17 +1,18 @@
-# Resultados y Datos (No se suben al repo)
-results/
-data/raw/
-*.nc
+# Datos crudos (Nunca subir los .nc por su peso)
+data/
 
-# Logs de Slurm y ejecución
+# Logs de SLURM y basura temporal
 logs/
-*.err
 *.log
-slurm-*
+*.err
+*.out
 
-# Basura de sistema y Python
+# Archivos sueltos de prueba
+test_result.png
+*.txt
+isoterma_cero.py
+
+# Caché de Python
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
-*-checkpoint.*
-.DS_Store
