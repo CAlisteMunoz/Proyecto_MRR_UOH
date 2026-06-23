@@ -5,43 +5,41 @@ from matplotlib import colors, dates
 import numpy as np
 import pandas as pd
 
-PALETA_ZE = ['#ccd8ff','#3366ff','#9fdf9f','#00b300','#ffff00','#ffcc30','#e62e00','#ff6600','#fff0e5','#c03fc0','#602060']
-
-def generar_plot_mrr_dual(ds, ze, vf, iso_ze, var_ze, iso_vf, var_vf, ruta_salida, titulo):
+def generar_plot_5_ventanas_w(ds, vf, resultados, ruta_salida, titulo_evento):
     tiempos_raw = pd.to_datetime(ds.time.values)
     tiempos_num = dates.date2num(tiempos_raw)
-    
     heights = (ds.height.values[0,:] if ds.height.ndim > 1 else ds.height.values) + 500
-    
-    fig, (ax1, ax2) = plt.subplots(nrows=2, figsize=(12, 10), sharex=True)
     extent = [tiempos_num[0], tiempos_num[-1], heights[0], heights[-1]]
     
-    # --- PANEL 1: Reflectividad ---
-    cmap_ze = colors.LinearSegmentedColormap.from_list("ze_uoh", PALETA_ZE)
-    im1 = ax1.imshow(ze, origin='lower', aspect='auto', extent=extent, cmap=cmap_ze, vmin=-5, vmax=50)
+    # Crear 5 subplots apilados
+    fig, axes = plt.subplots(nrows=5, figsize=(14, 18), sharex=True)
+    fig.suptitle(f"Análisis de Velocidad de Caída (W) y Seguimiento Isoterma 0°C\nEvento: {titulo_evento}", fontsize=18, fontweight='bold', y=0.92)
     
-    ax1.plot(tiempos_num, iso_ze, color='black', linewidth=1.5, label='Isoterma 0°C detectada')
-    ax1.fill_between(tiempos_num, iso_ze - np.sqrt(var_ze), iso_ze + np.sqrt(var_ze), color='darkred', alpha=0.3)
+    for ax, res in zip(axes, resultados):
+        # Fondo de radar (Velocidad)
+        im = ax.imshow(vf, origin='lower', aspect='auto', extent=extent, cmap='RdBu_r', vmin=-2, vmax=10)
+        
+        # Filtro de Kalman: Línea negra gruesa e Incertidumbre amarilla brillante
+        ax.plot(tiempos_num, res['iso'], color='black', linewidth=2.5, label='Predicción Filtro Kalman')
+        std_dev = np.sqrt(res['var'])
+        ax.fill_between(tiempos_num, res['iso'] - std_dev, res['iso'] + std_dev, color='yellow', alpha=0.6, label='Incertidumbre ($\\sigma$)')
+        
+        # Estética de cada subplot
+        ax.set_title(f"Configuración: {res['nombre']}", fontsize=14, fontweight='bold', loc='left')
+        ax.set_ylabel("Altitud [msnm]")
+        ax.set_ylim(500, 6000) # Centrado en la zona de interés
+        ax.grid(True, linestyle='--', alpha=0.4)
+        if res == resultados[0]:
+            ax.legend(loc='upper right', framealpha=0.9)
+        
+    # Eje X global
+    axes[-1].set_xlabel(f"Hora UTC $\\rightarrow$ {tiempos_raw[0].strftime('%Y-%b-%d')}", fontsize=14)
+    axes[-1].xaxis.set_major_formatter(dates.DateFormatter('%H:%M'))
     
-    ax1.set_title(f"Radar Perfilador MRR UOH\nConfiguración: {titulo}", fontsize=14, fontweight='bold')
-    ax1.set_ylabel("Altitud [msnm]")
-    ax1.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=2)
-    plt.colorbar(im1, ax=ax1, label="[dBZ]")
-
-    # --- PANEL 2: Velocidad de Caída ---
-    im2 = ax2.imshow(vf, origin='lower', aspect='auto', extent=extent, cmap='RdBu_r', vmin=-2, vmax=10)
+    # Barra de color global a la derecha
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    fig.colorbar(im, cax=cbar_ax, label="Velocidad de Caída [m/s]")
     
-    ax2.plot(tiempos_num, iso_vf, color='black', linewidth=1.5)
-    ax2.fill_between(tiempos_num, iso_vf - np.sqrt(var_vf), iso_vf + np.sqrt(var_vf), color='darkred', alpha=0.3)
-    
-    ax2.set_ylabel("Altitud [msnm]")
-    ax2.set_xlabel(f"Hora UTC $\\rightarrow$ {tiempos_raw[0].strftime('%Y-%b-%d')}")
-    plt.colorbar(im2, ax=ax2, label="[m/s]")
-    
-    for ax in [ax1, ax2]:
-        ax.set_ylim(0, 8000)
-        ax.xaxis.set_major_formatter(dates.DateFormatter('%H:%M'))
-
-    plt.tight_layout()
-    plt.savefig(ruta_salida, dpi=150)
+    plt.tight_layout(rect=[0, 0, 0.9, 0.9])
+    plt.savefig(ruta_salida, dpi=150, bbox_inches='tight')
     plt.close(fig)
