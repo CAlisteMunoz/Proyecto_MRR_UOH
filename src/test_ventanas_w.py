@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
 
-# Resolución de rutas maestras
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -15,12 +14,13 @@ from src.visualization.plots import generar_plot_5_ventanas_w
 TEST_DIR = PROJECT_ROOT / "results" / "test_ventanas_w"
 TEST_DIR.mkdir(parents=True, exist_ok=True)
 
+# Las 5 ventanas canónicas de procesamiento de señales
 CONFIGURACIONES = {
-    "1_Lineal_Clasica":      {"ventana": "lineal",    "sigma": None, "umbral_w": None},
-    "2_Uniforme_Promedio":   {"ventana": "uniforme",  "sigma": None, "umbral_w": None},
-    "3_Gaussiana_Estandar":  {"ventana": "gaussiana", "sigma": 2.0,  "umbral_w": None},
-    "4_Gaussiana_Estricta":  {"ventana": "gaussiana", "sigma": 1.0,  "umbral_w": None},
-    "5_Gaussiana_FiltroCinematico": {"ventana": "gaussiana", "sigma": 2.0, "umbral_w": 2.5}
+    "1_Lineal_Original":  {"ventana": "lineal",    "sigma": None, "umbral_w": None},
+    "2_Uniforme":         {"ventana": "uniforme",  "sigma": None, "umbral_w": None},
+    "3_Gaussiana":        {"ventana": "gaussiana", "sigma": 2.0,  "umbral_w": None},
+    "4_Hamming":          {"ventana": "hamming",   "sigma": None, "umbral_w": None},
+    "5_Hanning":          {"ventana": "hanning",   "sigma": None, "umbral_w": None}
 }
 
 def buscar_archivos_con_lluvia(archivos, cantidad_requerida=5):
@@ -43,7 +43,7 @@ def ejecutar_test_comparativo():
     
     for ruta in archivos:
         nombre_evento = ruta.stem
-        img_path = TEST_DIR / f"Panel_Completo_W_{nombre_evento}.png"
+        img_path = TEST_DIR / f"Panel_W_{nombre_evento}.png"
         print(f"\n>> Procesando Evento: {nombre_evento}")
         
         try:
@@ -70,7 +70,6 @@ def ejecutar_test_comparativo():
                         "var": var_v
                     })
                 
-                # Enviar todas las configuraciones al ploteador
                 generar_plot_5_ventanas_w(ds, vf_c, resultados_evento, img_path, nombre_evento)
                 print(f"   [OK] Generado -> {img_path.name}")
                 

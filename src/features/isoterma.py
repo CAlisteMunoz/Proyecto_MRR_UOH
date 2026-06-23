@@ -7,9 +7,12 @@ def filtrar_ruido(ze, vf, umbral_ze=12.0, valor_fondo_ze=12.0, valor_fondo_vf=2.
     return ze_f, vf_f
 
 def calcular_gradiente_avanzado(datos, marco=5, tipo_ventana='gaussiana', sigma=2.0, umbral_min_w=None):
+    # Incorporación de las 5 ventanas clásicas de procesamiento de señales
     if tipo_ventana == 'uniforme': pesos = np.ones(marco)
     elif tipo_ventana == 'lineal': pesos = np.array([marco - i for i in range(marco)])
     elif tipo_ventana == 'gaussiana': pesos = np.exp(-0.5 * (np.arange(marco) / sigma)**2)
+    elif tipo_ventana == 'hamming': pesos = np.hamming(marco)
+    elif tipo_ventana == 'hanning': pesos = np.hanning(marco)
     else: raise ValueError("Ventana inválida")
         
     pesos = pesos / np.sum(pesos)
@@ -31,7 +34,6 @@ def calcular_gradiente_avanzado(datos, marco=5, tipo_ventana='gaussiana', sigma=
 
 def aplicar_filtro_kalman(alturas_obs, gradiente, heights, delta_t=1, q_var=0.5, r_var=10.0):
     f = KalmanFilter(dim_x=2, dim_z=1)
-    # Inicializamos la isoterma en 2500m (una altura promedio realista)
     f.x = np.array([2500.0, 0.])
     f.F = np.array([[1., delta_t], [0., 1.]])
     f.H = np.array([[1., 0.]])
@@ -47,17 +49,12 @@ def aplicar_filtro_kalman(alturas_obs, gradiente, heights, delta_t=1, q_var=0.5,
         f.predict()
         col_grad = gradiente[:, t]
         
-        # Inteligencia contra cielo despejado: 
-        # La fusión nieve->lluvia genera un gradiente negativo fuerte. 
-        # Si el gradiente es débil (>-0.5), no hay precipitación, ignoramos la medición.
         if np.min(col_grad) < -0.5:
             idx = int((np.abs(h_arr - f.x[0])).argmin())
-            # Restringimos la búsqueda cerca de la última predicción para no saltar al suelo
             idx_s, idx_i = max(idx-15, 0), min(idx+15, len(h_arr)-1)
             medicion = h_arr[idx_s + np.argmin(col_grad[idx_s:idx_i+1])]
             f.update(medicion)
         else:
-            # Si no hay lluvia, la varianza crece porque hay mayor incertidumbre
             f.P[0,0] += 2.0 
             
         alturas_f.append(f.x[0])
