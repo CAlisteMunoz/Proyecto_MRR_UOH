@@ -32,8 +32,8 @@ def calcular_gradiente_avanzado(datos, marco=5, tipo_ventana='gaussiana', sigma=
     return np.pad(gradiente_datos, ((marco, marco-1), (0, 0)), mode='constant', constant_values=0)
 
 def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
-    q_var = 0.05
-    r_var = 50000.0
+    q_var = 0.5      # Aumentamos Q para permitir descensos pronunciados
+    r_var = 15000.0  # R alto para suavizar la curva y evitar tiritones
     
     f = KalmanFilter(dim_x=2, dim_z=1)
     f.x = np.array([2400.0, 0.]) 
@@ -52,29 +52,29 @@ def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
         col_grad = gradiente[:, t]
         col_vel = velocidades[:, t]
         
-        velocidad_maxima = np.max(col_vel)
+        v_max = np.max(col_vel)
         min_grad = np.min(col_grad)
         
-        if velocidad_maxima >= 4.5 and min_grad < -0.8: 
-            idx_predicho = int((np.abs(h_arr - f.x[0])).argmin())
-            idx_s = max(idx_predicho - 6, 0)
-            idx_i = min(idx_predicho + 6, len(h_arr)-1)
+        # 1. UMBRAL DE LLUVIA ESTRATIFORME (>3.0 m/s)
+        if v_max >= 3.0 and min_grad < -0.3: 
+            # 2. VISIÓN GLOBAL: Encontramos la isoterma real en TODA la columna
+            idx_medicion = np.argmin(col_grad)
+            medicion = h_arr[idx_medicion]
             
-            medicion = h_arr[idx_s + np.argmin(col_grad[idx_s:idx_i+1])]
-            
-            if abs(medicion - f.x[0]) < 800:
+            # 3. ENGANCHE INTELIGENTE: 
+            # Si el filtro está muy dudoso (ej. recién empieza la tormenta), acepta saltar
+            # hacia donde esté la lluvia. Si ya está enganchado, no salta más de 1500m.
+            if f.P[0,0] > 50.0 or abs(medicion - f.x[0]) < 1500:
                 f.update(medicion)
             else:
-                f.P[0,0] += 5.0
-                # Freno suave ante un dato anómalo
+                f.P[0,0] += 2.0
                 f.x[1] *= 0.5 
         else:
+            # Cielo vacío: Aumenta la incertidumbre y estabiliza la inercia (línea plana)
             f.P[0,0] += 1.0 
-            # DECAIMIENTO EXPONENCIAL: La velocidad pierde el 10% de inercia por iteración
-            # Esto aplana la curva de predicción suavemente sin matar el momentum inicial
-            f.x[1] *= 0.90      
+            f.x[1] *= 0.85      
             
-        # FAILSAFE GEOGRÁFICO: O'Higgins
+        # 4. FAILSAFE O'HIGGINS
         f.x[0] = np.clip(f.x[0], 1000.0, 4800.0)
             
         alturas_f.append(f.x[0])
