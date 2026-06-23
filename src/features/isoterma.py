@@ -32,59 +32,48 @@ def calcular_gradiente_avanzado(datos, marco=5, tipo_ventana='gaussiana', sigma=
     return np.pad(gradiente_datos, ((marco, marco-1), (0, 0)), mode='constant', constant_values=0)
 
 def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
-    q_var = 0.1      
-    r_var_base = 25000.0  
+    q_var = 0.5
+    r_var = 15000.0
     
     f = KalmanFilter(dim_x=2, dim_z=1)
     f.x = np.array([2400.0, 0.]) 
     f.F = np.array([[1., delta_t], [0., 1.]])
     f.H = np.array([[1., 0.]])
-    f.P *= 100. 
-    f.R = np.array([[r_var_base]])  
+    f.P *= 1000. 
+    f.R = np.array([[r_var]])  
     f.Q = np.array([[q_var, 0], [0, q_var/10.0]]) 
 
     alturas_f = []
     varianzas_f = []
     h_arr = getattr(heights, 'values', heights)
-    
-    # MÁSCARA CLIMATOLÓGICA: Restringimos la búsqueda entre 1000m y 4000m
-    idx_1000 = (np.abs(h_arr - 1000)).argmin()
-    idx_4000 = (np.abs(h_arr - 4000)).argmin()
 
     for t in range(gradiente.shape[1]):
         f.predict()
         col_grad = gradiente[:, t]
         col_vel = velocidades[:, t]
         
-        # PILAR 1: Filtro de Masa. Exigimos al menos ~150 metros (15 pixeles) de lluvia real.
-        pixeles_lluvia = np.sum(col_vel > 2.5)
+        v_max = np.max(col_vel)
+        min_grad = np.min(col_grad)
         
-        if pixeles_lluvia > 15: 
-            # PILAR 2: Búsqueda restringida a la zona físicamente posible
-            grad_valido = col_grad[idx_1000:idx_4000]
-            min_grad = np.min(grad_valido)
+        # 1. UMBRAL DE LLUVIA ESTRATIFORME (>3.0 m/s)
+        if v_max >= 3.0 and min_grad < -0.3: 
+            # 2. VISIÓN GLOBAL: Encontramos la isoterma real en TODA la columna
+            idx_medicion = np.argmin(col_grad)
+            medicion = h_arr[idx_medicion]
             
-            if min_grad < -0.3:
-                idx_local = np.argmin(grad_valido)
-                medicion = h_arr[idx_1000 + idx_local]
-                
-                # PILAR 3: Confianza Dinámica Anti-Saltos
-                innovacion = abs(medicion - f.x[0])
-                # Si el salto es grande, aumentamos drásticamente el ruido de medición R
-                # obligando al filtro a moverse suavemente hacia la curva sin teletransportarse
-                f.R = np.array([[r_var_base + (innovacion ** 2) * 20]])
-                
+            # 3. ENGANCHE INTELIGENTE
+            if f.P[0,0] > 50.0 or abs(medicion - f.x[0]) < 1500:
                 f.update(medicion)
-                
-                # Control de desbordamiento de incertidumbre
-                if f.P[0,0] > 500: f.P[0,0] = 500
+            else:
+                f.P[0,0] += 2.0
+                f.x[1] *= 0.5 
         else:
-            # Cielo vacío o nevada débil: Inercia térmica pura
-            f.P[0,0] += 2.0 
+            # Cielo vacío: Aumenta la incertidumbre y estabiliza la inercia (línea plana)
+            f.P[0,0] += 1.0 
             f.x[1] *= 0.85      
             
-        # FAILSAFE ABSOLUTO
-        f.x[0] = np.clip(f.x[0], 1000.0, 4200.0)
+        # 4. FAILSAFE O'HIGGINS
+        f.x[0] = np.clip(f.x[0], 1000.0, 4800.0)
             
         alturas_f.append(f.x[0])
         varianzas_f.append(f.P[0, 0])
