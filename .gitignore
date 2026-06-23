@@ -1,4 +1,4 @@
-# Datos crudos (Nunca subir los .nc por su peso)
+# Datos crudos 
 data/
 
 # Logs de SLURM y basura temporal
