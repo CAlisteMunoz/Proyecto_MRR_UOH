@@ -1,5 +1,10 @@
 import sys
 from pathlib import Path
+
+# Añadir la raíz del proyecto al path para que Python encuentre config.py
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(PROJECT_ROOT))
+
 import numpy as np
 import pandas as pd
 from config import AÑOS_VALIDOS, DATA_RAW, DATA_OUT
