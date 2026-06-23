@@ -36,8 +36,6 @@ def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
     r_var = 50000.0
     
     f = KalmanFilter(dim_x=2, dim_z=1)
-    
-    # 1. ANCLAJE CLIMATOLÓGICO: Región de O'Higgins (Aprox 2400 msnm en invierno)
     f.x = np.array([2400.0, 0.]) 
     f.F = np.array([[1., delta_t], [0., 1.]])
     f.H = np.array([[1., 0.]])
@@ -52,15 +50,13 @@ def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
     for t in range(gradiente.shape[1]):
         f.predict()
         col_grad = gradiente[:, t]
-        col_vel = velocidades[:, t] # Extraemos la columna de velocidades reales
+        col_vel = velocidades[:, t]
         
         velocidad_maxima = np.max(col_vel)
         min_grad = np.min(col_grad)
         
-        # 2. UMBRAL CINEMÁTICO: Solo calculamos si hay gotas cayendo a >= 4.5 m/s
         if velocidad_maxima >= 4.5 and min_grad < -0.8: 
             idx_predicho = int((np.abs(h_arr - f.x[0])).argmin())
-            # Restricción de vecindad para no saltar al suelo
             idx_s = max(idx_predicho - 6, 0)
             idx_i = min(idx_predicho + 6, len(h_arr)-1)
             
@@ -70,9 +66,16 @@ def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
                 f.update(medicion)
             else:
                 f.P[0,0] += 5.0
+                # Freno suave ante un dato anómalo
+                f.x[1] *= 0.5 
         else:
-            # Si no hay lluvia fuerte, mantenemos la línea horizontal y suave (Inercia)
             f.P[0,0] += 1.0 
+            # DECAIMIENTO EXPONENCIAL: La velocidad pierde el 10% de inercia por iteración
+            # Esto aplana la curva de predicción suavemente sin matar el momentum inicial
+            f.x[1] *= 0.90      
+            
+        # FAILSAFE GEOGRÁFICO: O'Higgins
+        f.x[0] = np.clip(f.x[0], 1000.0, 4800.0)
             
         alturas_f.append(f.x[0])
         varianzas_f.append(f.P[0, 0])
