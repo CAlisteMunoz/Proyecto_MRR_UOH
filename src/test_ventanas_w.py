@@ -14,7 +14,6 @@ from src.visualization.plots import generar_plot_5_ventanas_w
 TEST_DIR = PROJECT_ROOT / "results" / "test_ventanas_w"
 TEST_DIR.mkdir(parents=True, exist_ok=True)
 
-# Las 5 ventanas canónicas de procesamiento de señales
 CONFIGURACIONES = {
     "1_Lineal_Original":  {"ventana": "lineal",    "sigma": None, "umbral_w": None},
     "2_Uniforme":         {"ventana": "uniforme",  "sigma": None, "umbral_w": None},
@@ -62,7 +61,8 @@ def ejecutar_test_comparativo():
                         sigma=params["sigma"], umbral_min_w=params["umbral_w"]
                     )
                     
-                    iso_v, var_v = aplicar_filtro_kalman(np.zeros(vf_c.shape[1]), grad_vf, h)
+                    # AQUI ENVIAMOS LA MATRIZ DE VELOCIDADES (vf_c) AL KALMAN
+                    iso_v, var_v = aplicar_filtro_kalman(grad_vf, vf_c, h)
                     
                     resultados_evento.append({
                         "nombre": nombre_config,
