@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 from config import DATA_RAW, PROJECT_ROOT
 from src.data.loader import obtener_archivos_por_año, leer_netcdf
 
-# === VENTANAS MODERADAS DEL PROYECTO ===
+# === VENTANAS ESTÁNDAR ===
 CONFIGURACIONES = {
     "1_Lineal_Estrecha":   {"ventana": "lineal",    "marco": 3,  "sigma": None},
     "2_Lineal_Normal":     {"ventana": "lineal",    "marco": 5,  "sigma": None},
@@ -28,11 +28,11 @@ CONFIGURACIONES = {
     "5_Gaussiana_Amplia":  {"ventana": "gaussiana", "marco": 7,  "sigma": 2.0}
 }
 
-def calcular_gradiente_desde_cero(datos, marco=3, tipo_ventana='lineal', sigma=2.0):
+def calcular_gradiente_literal(datos, marco=3, tipo_ventana='lineal', sigma=2.0):
     """
-    Cálculo 100% puro y físico sin parches matemáticos.
-    Lluvia (Abajo) cae rápido. Nieve (Arriba) cae lento.
-    Gradiente = Abajo - Arriba -> Resultado Positivo Natural.
+    Cálculo del gradiente idéntico al de replicacion_repo.py.
+    Aplica Superior - Inferior, y luego la corrección microfísica 
+    para desplazar el mapa de colores RdBu y obtener la banda rojiza.
     """
     if tipo_ventana == 'uniforme': pesos = np.ones(marco)
     elif tipo_ventana == 'lineal': pesos = np.array([marco - i for i in range(marco)])
@@ -42,23 +42,28 @@ def calcular_gradiente_desde_cero(datos, marco=3, tipo_ventana='lineal', sigma=2
     else: pesos = np.ones(marco)
         
     pesos = pesos / np.sum(pesos)
-    gradiente = np.full_like(datos, np.nan)
+    
+    # Inicialización en ceros como en tu proyecto original
+    gradiente_datos = np.zeros_like(datos)
     
     for i in range(marco, datos.shape[0] - marco):
-        abajo = np.nansum([pesos[j] * datos[i - j - 1, :] for j in range(marco)], axis=0)
-        arriba = np.nansum([pesos[j] * datos[i + j, :] for j in range(marco)], axis=0)
+        sup = np.nansum([pesos[j] * datos[i + j + 1, :] for j in range(marco)], axis=0)
+        inf = np.nansum([pesos[j] * datos[i - j - 1, :] for j in range(marco)], axis=0)
         
-        # Matemática física estricta (Aceleración real)
-        gradiente[i, :] = abajo - arriba
+        # Matemática Original (Superior - Inferior)
+        gradiente_datos[i, :] = sup - inf
 
-    return np.where(np.isnan(datos), np.nan, gradiente)
+    # LA CORRECCIÓN EXACTA (Responsable del color rojo en RdBu)
+    min_val = np.nanmin(gradiente_datos)
+    if min_val < 0:
+        gradiente_datos = gradiente_datos + np.abs(min_val) + 1.0
 
-def ejecutar_replicacion_exacta():
-    print("=== INICIANDO REPLICACIÓN DESDE CERO (FÍSICA POSITIVA PURA) ===")
-    
-    # Forzamos la lista para asegurarnos de que la carpeta de datos no está vacía
+    # Enmascaramos los NaNs para que proplot los pinte de gris
+    return np.where(np.isnan(datos), np.nan, gradiente_datos)
+
+def ejecutar_replicacion_literal():
+    print("=== INICIANDO REPLICACIÓN 100% EXACTA AL PROYECTO ORIGINAL ===")
     archivos = list(obtener_archivos_por_año(2023, DATA_RAW))
-    print(f"-> Escaneando {len(archivos)} archivos NetCDF en la base de datos...")
     
     out_dir = PROJECT_ROOT / "results" / "gradientes"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -72,12 +77,11 @@ def ejecutar_replicacion_exacta():
             with leer_netcdf(ruta) as ds:
                 ze_raw = np.asarray(ds['attenuated_radar_reflectivity'].values)
                 
-                # FILTRO RELAJADO: Buscamos cualquier día que tenga un mínimo de precipitación real
                 valid_pixels = np.nansum(ze_raw > 15.0)
                 if valid_pixels < 50: 
                     continue
                     
-                print(f">> Procesando y Graficando Evento: {nombre}...")
+                print(f">> Replicando Evento: {nombre}...")
                 vf_raw = np.asarray(ds['fall_velocity'].values)
                 
                 try:
@@ -94,18 +98,18 @@ def ejecutar_replicacion_exacta():
                 ze_t = ze_raw.T if ze_raw.shape[0] == len(new_time) else ze_raw
                 vf_t = vf_raw.T if vf_raw.shape[0] == len(new_time) else vf_raw
 
-                # Enmascaramiento: Filtramos la Vf donde haya nube (Ze >= 12 dBZ)
+                # Generamos el filtro usando Ze
                 vf_f = np.where(ze_t >= 12.0, vf_t, np.nan)
 
                 resultados = []
                 for nom_config, params in CONFIGURACIONES.items():
-                    grad_vf = calcular_gradiente_desde_cero(
+                    grad_vf = calcular_gradiente_literal(
                         vf_f, marco=params["marco"], 
                         tipo_ventana=params["ventana"], sigma=params["sigma"]
                     )
                     resultados.append({"nombre": nom_config, "gradiente": grad_vf})
 
-                # === REPLICACIÓN LITERAL DEL PLOTEO PROPLOT ===
+                # --- PLOTEO PROPLOT LITERAL (Solo Vf, 5 Paneles) ---
                 total_seconds = (xlim[1] - xlim[0]).total_seconds()
                 if total_seconds <= 14400:
                     xlocator, xminorlocator = ('hour', range(0, 24, 1)), ('minute', 30)
@@ -121,18 +125,18 @@ def ejecutar_replicacion_exacta():
 
                 for i, ax in enumerate(axes):
                     res = resultados[i]
-                    # Uso exacto del colormap y los límites originales
+                    # Parámetros intactos de codigo_plot.txt
                     m = ax.imshow(res['gradiente'], origin='lower', aspect='auto',
                                   vmin=-3, vmax=10, cmap='RdBu', extent=extent)
                     
-                    ax.set_facecolor('0.9') # Fondo gris idéntico al original
-                    ax.format(ultitle=f"Ventana: {res['nombre']}",
+                    ax.set_facecolor('0.9') 
+                    ax.format(ultitle=f"Filtro: {res['nombre']}",
                               xrotation=False, xformatter='concise',
                               xlocator=xlocator, xminorlocator=xminorlocator,
                               ylim=ylim, yticklabelloc='both', ytickloc='both', xticklabelsize=8)
 
                 axes.format(
-                    suptitle=f'Comparativa Gradiente Vf (Estrictamente Positivo)\nEvento: {nombre}',
+                    suptitle=f'Gradientes Datos MRR UOH - Solo Velocidad de Caída\nEvento: {nombre}',
                     ylabel='Altitud [msnm]',
                     xlabel=r'Hora UTC $\rightarrow$'
                 )
@@ -140,17 +144,17 @@ def ejecutar_replicacion_exacta():
                 fig.colorbar(m, loc='r', label='[m/s]', length=0.4, extend='both')
                 axes.format(xlim=xlim)
 
-                out_file = out_dir / f"Comparacion_Gradientes_W_{nombre}.png"
+                out_file = out_dir / f"Replica_Gradientes_W_{nombre}.png"
                 fig.savefig(out_file, dpi=150, bbox_inches='tight')
                 plt.close(fig)
 
-                print(f"   [OK] Lámina guardada (Matemática Pura).")
+                print(f"   [OK] Lámina replicada y guardada.")
                 eventos += 1
                 
         except Exception as e:
-            pass # Ignoramos los archivos silenciosos para no manchar la terminal
+            print(f"   [ERROR] Falló en {nombre}: {e}")
 
-    print("\n✅ ¡Lote completo generado con éxito!")
+    print("\n✅ ¡Ejecución completa: Replicación exacta terminada!")
 
 if __name__ == '__main__':
-    ejecutar_replicacion_exacta()
+    ejecutar_replicacion_literal()
