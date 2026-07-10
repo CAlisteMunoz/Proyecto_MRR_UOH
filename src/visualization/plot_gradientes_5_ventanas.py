@@ -15,12 +15,13 @@ from config import DATA_RAW, PROJECT_ROOT
 from src.data.loader import obtener_archivos_por_año, leer_netcdf
 from src.features.isoterma import calcular_gradiente_avanzado, filtrar_ruido
 
+# === INCLUIMOS TU CONFIGURACIÓN ORIGINAL (MARCO=1) PARA COMPARAR ===
 CONFIGURACIONES = {
-    "1_Lineal_Normal":    {"ventana": "lineal",    "marco": 7,  "sigma": None},
-    "2_Uniforme_Normal":  {"ventana": "uniforme",  "marco": 7,  "sigma": None},
-    "3_Gaussiana_Normal": {"ventana": "gaussiana", "marco": 7,  "sigma": 2.0},
-    "4_Lineal_Amplia":    {"ventana": "lineal",    "marco": 15, "sigma": None},
-    "5_Gaussiana_Amplia": {"ventana": "gaussiana", "marco": 15, "sigma": 5.0}
+    "1_Original_Proyecto": {"ventana": "lineal",    "marco": 1,  "sigma": None},
+    "2_Lineal_Normal":     {"ventana": "lineal",    "marco": 7,  "sigma": None},
+    "3_Gaussiana_Normal":  {"ventana": "gaussiana", "marco": 7,  "sigma": 2.0},
+    "4_Lineal_Amplia":     {"ventana": "lineal",    "marco": 15, "sigma": None},
+    "5_Gaussiana_Amplia":  {"ventana": "gaussiana", "marco": 15, "sigma": 5.0}
 }
 
 def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_evento):
@@ -30,22 +31,23 @@ def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_eve
     extent = [tiempos_num[0], tiempos_num[-1], h[0], h[-1]]
 
     fig, axes = plt.subplots(nrows=5, figsize=(14, 18), sharex=True)
-    fig.suptitle(f"Comparación de Gradientes ($\\nabla W$): Normales vs Amplias\nEvento: {nombre_evento}", 
+    fig.suptitle(f"Replicación Exacta de Gradientes ($\\nabla W$)\nEvento: {nombre_evento}", 
                  fontsize=18, fontweight='bold', y=0.94)
 
-    # --- LA MAGIA VISUAL: CONFIGURACIÓN DEL COLORMAP ---
-    cmap = plt.get_cmap('RdBu_r').copy()
-    cmap.set_bad(color='white') # Forzamos que la ausencia de datos sea Blanco Puro
+    # --- REPLICAMOS TU ESTILO VISUAL ORIGINAL ---
+    cmap = plt.get_cmap('RdBu').copy()
+    cmap.set_bad(color='0.9') # Replicamos el fondo gris para datos inválidos
 
     for ax, res in zip(axes, resultados_gradientes):
+        # Utilizamos exactamente los límites de tu función original de Vf
         im = ax.imshow(res['gradiente'], origin='lower', aspect='auto', extent=extent, 
-                       cmap=cmap, vmin=-3.0, vmax=3.0)
+                       cmap=cmap, vmin=-3, vmax=10)
         
         ax.set_title(f"Filtro: {res['nombre']}", fontsize=14, fontweight='bold', loc='left')
         ax.set_ylabel("Altitud [msnm]")
         ax.set_ylim(500, 4500) 
         ax.grid(True, linestyle='--', alpha=0.4)
-        ax.set_facecolor('white') # Fondo del gráfico blanco por seguridad
+        ax.set_facecolor('0.9') 
 
     axes[-1].set_xlabel(f"Hora UTC $\\rightarrow$ {tiempos_raw[0].strftime('%Y-%b-%d')}", fontsize=14)
     axes[-1].xaxis.set_major_formatter(dates.DateFormatter('%H:%M'))
@@ -54,13 +56,13 @@ def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_eve
 
     cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
     cbar = fig.colorbar(im, cax=cbar_ax, extend='both')
-    cbar.set_label("Tasa de Cambio ($\\nabla$ m/s)", fontsize=12)
+    cbar.set_label("Tasa de Cambio (Escala Vf original) [m/s]", fontsize=12)
 
     plt.savefig(ruta_salida, dpi=150, bbox_inches='tight')
     plt.close(fig)
 
 def ejecutar_comparacion_gradientes():
-    print("=== INICIANDO PROCESAMIENTO CON MÁSCARA FÍSICA DE FONDO ===")
+    print("=== INICIANDO PROCESAMIENTO CON CONFIGURACIÓN ORIGINAL ===")
     archivos = obtener_archivos_por_año(2023, DATA_RAW)
     
     archivos_validos = []
@@ -73,10 +75,6 @@ def ejecutar_comparacion_gradientes():
                     break
         except Exception: pass
 
-    if not archivos_validos:
-        print("❌ Error: No se encontraron eventos de lluvia válidos.")
-        return
-
     out_dir = PROJECT_ROOT / "results" / "gradientes"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -88,13 +86,11 @@ def ejecutar_comparacion_gradientes():
         with leer_netcdf(ruta_muestra) as ds:
             ze_raw, vf_raw = ds['attenuated_radar_reflectivity'].values, ds['fall_velocity'].values
             
-            # 1. Obtenemos las matrices base
             ze_c, vf_c = filtrar_ruido(ze_raw.T if ze_raw.shape[0] == len(ds.time) else ze_raw,
                                     vf_raw.T if vf_raw.shape[0] == len(ds.time) else vf_raw)
 
             resultados = []
             for nombre_config, params in CONFIGURACIONES.items():
-                # 2. Calculamos el gradiente matemático
                 grad_vf = calcular_gradiente_avanzado(
                     vf_c, 
                     marco=params["marco"], 
@@ -102,17 +98,13 @@ def ejecutar_comparacion_gradientes():
                     sigma=params["sigma"]
                 )
                 
-                # --- EL ARREGLO CRUCIAL (MÁSCARA) ---
-                # Donde la reflectividad (ze_c) sea menor al umbral, lo convertimos en NaN.
-                # El colormap ignorará esos pixeles y el fondo quedará 100% limpio.
+                # Máscara para que el cielo despejado se pinte con el color gris (0.9)
                 grad_vf_enmascarado = np.where(ze_c >= 12.0, grad_vf, np.nan)
                 
                 resultados.append({"nombre": nombre_config, "gradiente": grad_vf_enmascarado})
 
             generar_plot_5_gradientes(ds, resultados, out_file, nombre)
-            print(f"   [OK] Lámina guardada con fondo inmaculado.")
-
-    print("\n✅ ¡Lote completo generado con éxito!")
+            print(f"   [OK] Lámina guardada con estilo original.")
 
 if __name__ == '__main__':
     ejecutar_comparacion_gradientes()
