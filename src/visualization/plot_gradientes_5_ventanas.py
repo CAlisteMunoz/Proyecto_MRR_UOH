@@ -23,12 +23,12 @@ CONFIGURACIONES = {
     "5_Gaussiana_Amplia":  {"ventana": "gaussiana", "marco": 15, "sigma": 5.0}
 }
 
-def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_evento):
+def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_evento, h_arr):
     tiempos_raw = pd.to_datetime(ds.time.values)
     
-    # Ajuste de altura extraído de replicacion_repo.ipynb
-    h = ds.height.values[0,:] + (500 + (ds.height.values[0,1] - ds.height.values[0,0]) / 2)
-    extent = [mdates.date2num(tiempos_raw[0]), mdates.date2num(tiempos_raw[-1]), h[0], h[-1]]
+    # Parámetros estrictos extraídos de codigo_plot.txt
+    extent = [mdates.date2num(tiempos_raw[0]), mdates.date2num(tiempos_raw[-1]), h_arr[0], h_arr[-1]]
+    ylim = (0, 3600) if h_arr[-1] < 5000 else (0, 8000)
 
     fig, axes = plt.subplots(nrows=5, figsize=(14, 18), sharex=True)
     fig.suptitle(f"Replicación de Gradientes ($\\nabla W$) - Formato Original\nEvento: {nombre_evento}", 
@@ -36,23 +36,19 @@ def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_eve
 
     # Replicación del mapa original para Vf
     cmap = plt.get_cmap('RdBu').copy()
-    cmap.set_bad('0.9', 1) 
-
-    # Replicación del límite Y
-    ylim = (0, 3600) if h[-1] < 5000 else (0, 8000)
+    cmap.set_bad('0.9', 1) # Asegura el fondo gris para datos inválidos (NaN)
 
     for ax, res in zip(axes, resultados_gradientes):
-        # Parámetros visuales estrictos del archivo codigo_plot.txt
+        # Mismos límites y origen del proyecto base
         im = ax.imshow(res['gradiente'], origin='lower', aspect='auto', extent=extent, 
                        cmap=cmap, vmin=-3, vmax=10)
         
         ax.set_title(f"Configuración: {res['nombre']}", fontsize=12, loc='left')
         ax.set_ylabel("Altitud [msnm]", fontsize=10)
         ax.set_ylim(ylim)
-        ax.set_facecolor('0.9')
+        ax.set_facecolor('0.9') # Replicación visual de add_no_data
         ax.grid(True, linestyle='--', alpha=0.3)
 
-    # Replicación del xformatter='concise'
     locator = mdates.AutoDateLocator()
     formatter = mdates.ConciseDateFormatter(locator)
     axes[-1].xaxis.set_major_locator(locator)
@@ -87,26 +83,41 @@ def ejecutar_comparacion_gradientes():
 
     for ruta_muestra in archivos_validos:
         nombre = ruta_muestra.stem
-        out_file = out_dir / f"Comparacion_Gradientes_W_{nombre}.png"
         print(f"\n>> Analizando: {nombre}...")
 
-        with leer_netcdf(ruta_muestra) as ds:
-            ze_raw, vf_raw = ds['attenuated_radar_reflectivity'].values, ds['fall_velocity'].values
-            ze_c, vf_c = filtrar_ruido(ze_raw.T if ze_raw.shape[0] == len(ds.time) else ze_raw,
-                                    vf_raw.T if vf_raw.shape[0] == len(ds.time) else vf_raw)
+        try:
+            with leer_netcdf(ruta_muestra) as ds:
+                # Lectura de datos segura
+                ze_raw = ds['attenuated_radar_reflectivity'].values
+                vf_raw = ds['fall_velocity'].values
+                
+                # Extracción de altura replicada exactamente del Jupyter y blindada
+                h_vals = ds.height.values[0,:] if ds.height.ndim > 1 else ds.height.values
+                altura_inicial_desfase = 500 + (h_vals[1] - h_vals[0]) / 2
+                h_ajustado = h_vals + altura_inicial_desfase
 
-            resultados = []
-            for nombre_config, params in CONFIGURACIONES.items():
-                grad_vf = calcular_gradiente_avanzado(
-                    vf_c, 
-                    marco=params["marco"], 
-                    tipo_ventana=params["ventana"], 
-                    sigma=params["sigma"]
-                )
-                resultados.append({"nombre": nombre_config, "gradiente": grad_vf})
+                # Transposición controlada
+                ze_t = ze_raw.T if ze_raw.shape[0] == len(ds.time) else ze_raw
+                vf_t = vf_raw.T if vf_raw.shape[0] == len(ds.time) else vf_raw
 
-            generar_plot_5_gradientes(ds, resultados, out_file, nombre)
-            print(f"   [OK] Lámina comparativa replicada.")
+                ze_c, vf_c = filtrar_ruido(ze_t, vf_t)
+
+                resultados = []
+                for nombre_config, params in CONFIGURACIONES.items():
+                    grad_vf = calcular_gradiente_avanzado(
+                        vf_c, 
+                        marco=params["marco"], 
+                        tipo_ventana=params["ventana"], 
+                        sigma=params["sigma"]
+                    )
+                    resultados.append({"nombre": nombre_config, "gradiente": grad_vf})
+
+                out_file = out_dir / f"Comparacion_Gradientes_W_{nombre}.png"
+                generar_plot_5_gradientes(ds, resultados, out_file, nombre, h_ajustado)
+                print(f"   [OK] Lámina comparativa replicada.")
+                
+        except Exception as e:
+            print(f"   [ERROR] Falló procesar el archivo {nombre}: {e}")
 
 if __name__ == '__main__':
     ejecutar_comparacion_gradientes()

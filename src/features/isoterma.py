@@ -2,7 +2,7 @@ import numpy as np
 from filterpy.kalman import KalmanFilter
 
 def filtrar_ruido(ze, vf, umbral_ze=12.0, valor_fondo_ze=12.0, valor_fondo_vf=2.0):
-    # Enmascaramos con NaN para replicar la función add_no_data del proyecto original
+    # Todo lo menor al umbral se vuelve NaN para el enmascaramiento visual
     ze_f = np.where(ze >= umbral_ze, ze, np.nan)
     vf_f = np.where(ze >= umbral_ze, vf, np.nan)
     return ze_f, vf_f
@@ -18,7 +18,6 @@ def calcular_gradiente_avanzado(datos, marco=1, tipo_ventana='lineal', sigma=2.0
     pesos = pesos / np.sum(pesos)
     gradiente_datos = np.full_like(datos, np.nan)
     
-    # Cálculo puro de diferencias finitas
     for i in range(marco, datos.shape[0] - marco):
         sup = np.nansum([pesos[j] * datos[i + j, :] for j in range(marco)], axis=0)
         inf = np.nansum([pesos[j] * datos[i - j - 1, :] for j in range(marco)], axis=0)
@@ -30,6 +29,9 @@ def calcular_gradiente_avanzado(datos, marco=1, tipo_ventana='lineal', sigma=2.0
             
         gradiente_datos[i, :] = grad
 
+    # REPLICACIÓN EXACTA: Restauramos la máscara de NaN del fondo para el ploteo
+    gradiente_datos = np.where(np.isnan(datos), np.nan, gradiente_datos)
+    
     return gradiente_datos
 
 def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
@@ -52,7 +54,6 @@ def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
         f.predict()
         col_grad = gradiente[:, t]
         
-        # Ignoramos los NaNs para buscar el gradiente real
         if not np.all(np.isnan(col_grad)):
             min_grad = np.nanmin(col_grad)
             if min_grad < -0.3:
