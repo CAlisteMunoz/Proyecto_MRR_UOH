@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import warnings
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
@@ -11,6 +12,11 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import xarray as xr
+
+# 1. Silenciamos el warning molesto de xarray
+warnings.filterwarnings("ignore", category=xr.SerializationWarning)
+
 from config import DATA_RAW, PROJECT_ROOT
 from src.data.loader import obtener_archivos_por_año, leer_netcdf
 from src.features.isoterma import calcular_gradiente_avanzado, filtrar_ruido
@@ -23,18 +29,23 @@ CONFIGURACIONES = {
     "5_Gaussiana_Amplia":  {"ventana": "gaussiana", "marco": 15, "sigma": 5.0}
 }
 
+def procesar_tiempos(ds):
+    # 2. Solución definitiva al error de cftime
+    try:
+        return pd.to_datetime(ds.time.values)
+    except Exception:
+        # Si el array contiene cftime, forzamos la traducción a string y luego a datetime
+        return pd.to_datetime(ds.indexes['time'].astype(str))
+
 def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_evento, h_arr):
-    tiempos_raw = pd.to_datetime(ds.time.values)
-    
-    # Parámetros estrictos extraídos de la replicación
-    extent = [mdates.date2num(tiempos_raw[0]), mdates.date2num(tiempos_raw[-1]), h_arr[0], h_arr[-1]]
+    tiempos = procesar_tiempos(ds)
+    extent = [mdates.date2num(tiempos[0]), mdates.date2num(tiempos[-1]), h_arr[0], h_arr[-1]]
     ylim = (0, 3600) if h_arr[-1] < 5000 else (0, 8000)
 
     fig, axes = plt.subplots(nrows=5, figsize=(14, 18), sharex=True)
     fig.suptitle(f"Replicación de Gradientes ($\\nabla W$) - Formato Original\nEvento: {nombre_evento}", 
                  fontsize=16, fontweight='bold', y=0.92)
 
-    # Replicación del mapa original para Vf
     cmap = plt.get_cmap('RdBu').copy()
     cmap.set_bad('0.9', 1) 
 
@@ -55,7 +66,6 @@ def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_eve
     axes[-1].set_xlabel(r'Hora UTC $\rightarrow$', fontsize=12)
 
     plt.subplots_adjust(left=0.08, right=0.88, top=0.89, bottom=0.06, hspace=0.25)
-
     cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
     cbar = fig.colorbar(im, cax=cbar_ax, extend='both')
     cbar.set_label("[m/s]", fontsize=12)
@@ -64,38 +74,32 @@ def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_eve
     plt.close(fig)
 
 def ejecutar_comparacion_gradientes():
-    print("=== INICIANDO REPLICACIÓN EXACTA DE GRADIENTES ===")
+    print("=== INICIANDO REPLICACIÓN EXACTA Y LIMPIA DESDE CERO ===")
     archivos = obtener_archivos_por_año(2023, DATA_RAW)
     
-    archivos_validos = []
-    for ruta in archivos:
-        try:
-            with leer_netcdf(ruta) as ds:
-                if np.sum(ds['attenuated_radar_reflectivity'].values > 20.0) > 100:
-                    archivos_validos.append(ruta)
-                if len(archivos_validos) == 10:
-                    break
-        except Exception: pass
-
     out_dir = PROJECT_ROOT / "results" / "gradientes"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    for ruta_muestra in archivos_validos:
-        nombre = ruta_muestra.stem
-        print(f"\n>> Analizando: {nombre}...")
+    eventos_procesados = 0
+    for ruta_muestra in archivos:
+        if eventos_procesados >= 10:
+            break
 
+        nombre = ruta_muestra.stem
         try:
             with leer_netcdf(ruta_muestra) as ds:
-                # BLINDAJE CONTRA TUPLES: Forzamos np.asarray()
                 ze_raw = np.asarray(ds['attenuated_radar_reflectivity'].values)
+                # Buscamos eficientemente un archivo que sí tenga evento de lluvia
+                if np.sum(ze_raw > 20.0) < 100:
+                    continue
+                
+                print(f"\n>> Analizando: {nombre}...")
                 vf_raw = np.asarray(ds['fall_velocity'].values)
                 
-                # Extracción de altura y desfase
                 h_vals = np.asarray(ds.height.values[0,:] if ds.height.ndim > 1 else ds.height.values)
                 altura_inicial_desfase = 500 + (h_vals[1] - h_vals[0]) / 2
                 h_ajustado = h_vals + altura_inicial_desfase
 
-                # Transposición controlada y blindada 
                 ze_t = np.asarray(ze_raw.T if ze_raw.shape[0] == len(ds.time) else ze_raw)
                 vf_t = np.asarray(vf_raw.T if vf_raw.shape[0] == len(ds.time) else vf_raw)
 
@@ -115,9 +119,12 @@ def ejecutar_comparacion_gradientes():
                 generar_plot_5_gradientes(ds, resultados, out_file, nombre, h_ajustado)
                 print(f"   [OK] Lámina comparativa replicada.")
                 
+                eventos_procesados += 1
+                
         except Exception as e:
-            # Ahora capturará y te mostrará cualquier error, en lugar de crashear el script entero
             print(f"   [ERROR] Falló procesar el archivo {nombre}: {e}")
+
+    print(f"\n✅ ¡Lote limpio de {eventos_procesados} eventos generado con éxito!")
 
 if __name__ == '__main__':
     ejecutar_comparacion_gradientes()
