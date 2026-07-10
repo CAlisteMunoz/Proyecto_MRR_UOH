@@ -29,14 +29,7 @@ def calcular_gradiente_avanzado(datos, marco=5, tipo_ventana='gaussiana', sigma=
             
         gradiente_datos[i - marco, :] = grad
 
-    gradiente_datos_completo = np.pad(gradiente_datos, ((marco, marco-1), (0, 0)), mode='constant', constant_values=0)
-    
-    # --- CORRECCIÓN FÍSICA Y CLIMATOLÓGICA (Del proyecto anterior) ---
-    # Amplificamos todos los valores al (mínimo + 1) para eliminar los gradientes negativos.
-    # El punto de mayor aceleración (fusión) valdrá exactamente 1.0.
-    gradiente_datos_completo = gradiente_datos_completo + (np.abs(gradiente_datos_completo.min()) + 1)
-
-    return gradiente_datos_completo
+    return np.pad(gradiente_datos, ((marco, marco-1), (0, 0)), mode='constant', constant_values=0)
 
 def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
     q_var = 0.5
@@ -53,8 +46,6 @@ def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
     alturas_f = []
     varianzas_f = []
     h_arr = getattr(heights, 'values', heights)
-    
-    ponderador_distancia = 2.0
 
     for t in range(gradiente.shape[1]):
         f.predict()
@@ -62,21 +53,10 @@ def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
         col_vel = velocidades[:, t]
         
         v_max = np.max(col_vel)
-        
-        # Como sumamos abs(min)+1, extraemos la mediana para saber el valor del "fondo despejado"
-        fondo_grad = np.median(col_grad)
         min_grad = np.min(col_grad)
         
-        # --- FACTOR PONDERADO POR DISTANCIA (Anti-Ceguera y Anti-Saltos) ---
-        altura_actual = f.x[0]
-        distancias = np.abs(h_arr - altura_actual)
-        distancias_normalizadas = (distancias / np.max(distancias)) + 1.0
-        
-        gradientes_pond = col_grad * (distancias_normalizadas * ponderador_distancia)
-        
-        # Si llueve, y el mínimo se aleja del fondo (acercándose a 1.0)
-        if v_max >= 3.0 and min_grad < (fondo_grad - 0.3): 
-            idx_medicion = np.argmin(gradientes_pond)
+        if v_max >= 3.0 and min_grad < -0.3: 
+            idx_medicion = np.argmin(col_grad)
             medicion = h_arr[idx_medicion]
             
             if f.P[0,0] > 50.0 or abs(medicion - f.x[0]) < 1500:
