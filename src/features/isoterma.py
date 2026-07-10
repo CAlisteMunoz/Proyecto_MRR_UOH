@@ -29,11 +29,18 @@ def calcular_gradiente_avanzado(datos, marco=5, tipo_ventana='gaussiana', sigma=
             
         gradiente_datos[i - marco, :] = grad
 
-    return np.pad(gradiente_datos, ((marco, marco-1), (0, 0)), mode='constant', constant_values=0)
+    gradiente_datos_completo = np.pad(gradiente_datos, ((marco, marco-1), (0, 0)), mode='constant', constant_values=0)
+    
+    # --- CORRECCIÓN FÍSICA Y CLIMATOLÓGICA (Del proyecto anterior) ---
+    # Amplificamos todos los valores al (mínimo + 1) para eliminar los gradientes negativos.
+    # El punto de mayor aceleración (fusión) valdrá exactamente 1.0.
+    gradiente_datos_completo = gradiente_datos_completo + (np.abs(gradiente_datos_completo.min()) + 1)
+
+    return gradiente_datos_completo
 
 def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
-    q_var = 0.05
-    r_var = 50000.0
+    q_var = 0.5
+    r_var = 15000.0
     
     f = KalmanFilter(dim_x=2, dim_z=1)
     f.x = np.array([2400.0, 0.]) 
@@ -46,35 +53,41 @@ def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
     alturas_f = []
     varianzas_f = []
     h_arr = getattr(heights, 'values', heights)
+    
+    ponderador_distancia = 2.0
 
     for t in range(gradiente.shape[1]):
         f.predict()
         col_grad = gradiente[:, t]
         col_vel = velocidades[:, t]
         
-        velocidad_maxima = np.max(col_vel)
+        v_max = np.max(col_vel)
+        
+        # Como sumamos abs(min)+1, extraemos la mediana para saber el valor del "fondo despejado"
+        fondo_grad = np.median(col_grad)
         min_grad = np.min(col_grad)
         
-        if velocidad_maxima >= 4.5 and min_grad < -0.8: 
-            idx_predicho = int((np.abs(h_arr - f.x[0])).argmin())
-            idx_s = max(idx_predicho - 6, 0)
-            idx_i = min(idx_predicho + 6, len(h_arr)-1)
+        # --- FACTOR PONDERADO POR DISTANCIA (Anti-Ceguera y Anti-Saltos) ---
+        altura_actual = f.x[0]
+        distancias = np.abs(h_arr - altura_actual)
+        distancias_normalizadas = (distancias / np.max(distancias)) + 1.0
+        
+        gradientes_pond = col_grad * (distancias_normalizadas * ponderador_distancia)
+        
+        # Si llueve, y el mínimo se aleja del fondo (acercándose a 1.0)
+        if v_max >= 3.0 and min_grad < (fondo_grad - 0.3): 
+            idx_medicion = np.argmin(gradientes_pond)
+            medicion = h_arr[idx_medicion]
             
-            medicion = h_arr[idx_s + np.argmin(col_grad[idx_s:idx_i+1])]
-            
-            if abs(medicion - f.x[0]) < 800:
+            if f.P[0,0] > 50.0 or abs(medicion - f.x[0]) < 1500:
                 f.update(medicion)
             else:
-                f.P[0,0] += 5.0
-                # Freno suave ante un dato anómalo
+                f.P[0,0] += 2.0
                 f.x[1] *= 0.5 
         else:
             f.P[0,0] += 1.0 
-            # DECAIMIENTO EXPONENCIAL: La velocidad pierde el 10% de inercia por iteración
-            # Esto aplana la curva de predicción suavemente sin matar el momentum inicial
-            f.x[1] *= 0.90      
+            f.x[1] *= 0.85      
             
-        # FAILSAFE GEOGRÁFICO: O'Higgins
         f.x[0] = np.clip(f.x[0], 1000.0, 4800.0)
             
         alturas_f.append(f.x[0])

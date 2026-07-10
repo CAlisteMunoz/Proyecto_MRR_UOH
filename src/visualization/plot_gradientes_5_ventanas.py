@@ -15,7 +15,6 @@ from config import DATA_RAW, PROJECT_ROOT
 from src.data.loader import obtener_archivos_por_año, leer_netcdf
 from src.features.isoterma import calcular_gradiente_avanzado, filtrar_ruido
 
-# === SELECCIÓN DEFINITIVA DE 5 VENTANAS (NORMALES VS AMPLIAS) ===
 CONFIGURACIONES = {
     "1_Lineal_Normal":    {"ventana": "lineal",    "marco": 7,  "sigma": None},
     "2_Uniforme_Normal":  {"ventana": "uniforme",  "marco": 7,  "sigma": None},
@@ -31,13 +30,13 @@ def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_eve
     extent = [tiempos_num[0], tiempos_num[-1], h[0], h[-1]]
 
     fig, axes = plt.subplots(nrows=5, figsize=(14, 18), sharex=True)
-    fig.suptitle(f"Comparación de Gradientes ($\\nabla W$): Normales vs Amplias\nEvento: {nombre_evento}", 
+    fig.suptitle(f"Gradientes Positivos Corregidos ($\\nabla W$): Normales vs Amplias\nEvento: {nombre_evento}", 
                  fontsize=18, fontweight='bold', y=0.94)
 
     for ax, res in zip(axes, resultados_gradientes):
-        # LÍMITES AMPLIADOS: vmin=-3.5, vmax=3.5 para suavizar la saturación central
+        # Colormap secuencial (Amarillo brillante = fusión en 1.0, Morado oscuro = fondo estable)
         im = ax.imshow(res['gradiente'], origin='lower', aspect='auto', extent=extent, 
-                       cmap='RdBu_r', vmin=-3.5, vmax=3.5)
+                       cmap='viridis_r', vmin=1.0, vmax=6.0)
         
         ax.set_title(f"Filtro: {res['nombre']}", fontsize=14, fontweight='bold', loc='left')
         ax.set_ylabel("Altitud [msnm]")
@@ -50,9 +49,8 @@ def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_eve
     plt.subplots_adjust(left=0.06, right=0.88, top=0.91, bottom=0.06, hspace=0.18)
 
     cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
-    # extend='both' indica gráficamente si hay valores que escapan de los límites
-    cbar = fig.colorbar(im, cax=cbar_ax, extend='both')
-    cbar.set_label("Tasa de Cambio ($\\nabla$ m/s)", fontsize=12)
+    cbar = fig.colorbar(im, cax=cbar_ax, extend='max')
+    cbar.set_label("Gradiente Físico Ponderado (Mínimo = 1.0)", fontsize=12)
 
     plt.savefig(ruta_salida, dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -61,7 +59,6 @@ def ejecutar_comparacion_gradientes():
     print("=== INICIANDO PROCESAMIENTO EN LOTE (10 EVENTOS) ===")
     archivos = obtener_archivos_por_año(2023, DATA_RAW)
     
-    # 1. Escanear y seleccionar 10 archivos que realmente tengan lluvia
     archivos_validos = []
     for ruta in archivos:
         try:
@@ -80,7 +77,6 @@ def ejecutar_comparacion_gradientes():
     out_dir = PROJECT_ROOT / "results" / "gradientes"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 2. Procesar cada archivo individualmente
     for ruta_muestra in archivos_validos:
         nombre = ruta_muestra.stem
         out_file = out_dir / f"Comparacion_Gradientes_W_{nombre}.png"
