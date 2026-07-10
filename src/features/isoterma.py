@@ -2,11 +2,12 @@ import numpy as np
 from filterpy.kalman import KalmanFilter
 
 def filtrar_ruido(ze, vf, umbral_ze=12.0, valor_fondo_ze=12.0, valor_fondo_vf=2.0):
-    ze_f = np.where(ze >= umbral_ze, ze, valor_fondo_ze)
-    vf_f = np.where(ze >= umbral_ze, vf, valor_fondo_vf)
+    # Enmascaramos con NaN para replicar la función add_no_data del proyecto original
+    ze_f = np.where(ze >= umbral_ze, ze, np.nan)
+    vf_f = np.where(ze >= umbral_ze, vf, np.nan)
     return ze_f, vf_f
 
-def calcular_gradiente_avanzado(datos, marco=5, tipo_ventana='gaussiana', sigma=2.0, umbral_min_w=None):
+def calcular_gradiente_avanzado(datos, marco=1, tipo_ventana='lineal', sigma=2.0, umbral_min_w=None):
     if tipo_ventana == 'uniforme': pesos = np.ones(marco)
     elif tipo_ventana == 'lineal': pesos = np.array([marco - i for i in range(marco)])
     elif tipo_ventana == 'gaussiana': pesos = np.exp(-0.5 * (np.arange(marco) / sigma)**2)
@@ -15,21 +16,21 @@ def calcular_gradiente_avanzado(datos, marco=5, tipo_ventana='gaussiana', sigma=
     else: raise ValueError("Ventana inválida")
         
     pesos = pesos / np.sum(pesos)
-    niveles_restantes = datos.shape[0] - 1 - 2 * (marco - 1)
-    gradiente_datos = np.zeros((niveles_restantes, datos.shape[1]))
+    gradiente_datos = np.full_like(datos, np.nan)
     
+    # Cálculo puro de diferencias finitas
     for i in range(marco, datos.shape[0] - marco):
-        sup = np.sum([pesos[j] * datos[i + j, :] for j in range(marco)], axis=0)
-        inf = np.sum([pesos[j] * datos[i - j - 1, :] for j in range(marco)], axis=0)
+        sup = np.nansum([pesos[j] * datos[i + j, :] for j in range(marco)], axis=0)
+        inf = np.nansum([pesos[j] * datos[i - j - 1, :] for j in range(marco)], axis=0)
         grad = sup - inf
         
         if umbral_min_w is not None:
             velocidad_actual = datos[i, :]
-            grad = np.where(velocidad_actual < umbral_min_w, 0, grad)
+            grad = np.where(velocidad_actual < umbral_min_w, np.nan, grad)
             
-        gradiente_datos[i - marco, :] = grad
+        gradiente_datos[i, :] = grad
 
-    return np.pad(gradiente_datos, ((marco, marco-1), (0, 0)), mode='constant', constant_values=0)
+    return gradiente_datos
 
 def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
     q_var = 0.5
@@ -50,23 +51,25 @@ def aplicar_filtro_kalman(gradiente, velocidades, heights, delta_t=1):
     for t in range(gradiente.shape[1]):
         f.predict()
         col_grad = gradiente[:, t]
-        col_vel = velocidades[:, t]
         
-        v_max = np.max(col_vel)
-        min_grad = np.min(col_grad)
-        
-        if v_max >= 3.0 and min_grad < -0.3: 
-            idx_medicion = np.argmin(col_grad)
-            medicion = h_arr[idx_medicion]
-            
-            if f.P[0,0] > 50.0 or abs(medicion - f.x[0]) < 1500:
-                f.update(medicion)
+        # Ignoramos los NaNs para buscar el gradiente real
+        if not np.all(np.isnan(col_grad)):
+            min_grad = np.nanmin(col_grad)
+            if min_grad < -0.3:
+                idx_medicion = np.nanargmin(col_grad)
+                medicion = h_arr[idx_medicion]
+                
+                if f.P[0,0] > 50.0 or abs(medicion - f.x[0]) < 1500:
+                    f.update(medicion)
+                else:
+                    f.P[0,0] += 2.0
+                    f.x[1] *= 0.5 
             else:
-                f.P[0,0] += 2.0
-                f.x[1] *= 0.5 
+                f.P[0,0] += 1.0 
+                f.x[1] *= 0.85 
         else:
             f.P[0,0] += 1.0 
-            f.x[1] *= 0.85      
+            f.x[1] *= 0.85 
             
         f.x[0] = np.clip(f.x[0], 1000.0, 4800.0)
             
