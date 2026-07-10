@@ -26,7 +26,7 @@ CONFIGURACIONES = {
 def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_evento, h_arr):
     tiempos_raw = pd.to_datetime(ds.time.values)
     
-    # Parámetros estrictos extraídos de codigo_plot.txt
+    # Parámetros estrictos extraídos de la replicación
     extent = [mdates.date2num(tiempos_raw[0]), mdates.date2num(tiempos_raw[-1]), h_arr[0], h_arr[-1]]
     ylim = (0, 3600) if h_arr[-1] < 5000 else (0, 8000)
 
@@ -36,17 +36,16 @@ def generar_plot_5_gradientes(ds, resultados_gradientes, ruta_salida, nombre_eve
 
     # Replicación del mapa original para Vf
     cmap = plt.get_cmap('RdBu').copy()
-    cmap.set_bad('0.9', 1) # Asegura el fondo gris para datos inválidos (NaN)
+    cmap.set_bad('0.9', 1) 
 
     for ax, res in zip(axes, resultados_gradientes):
-        # Mismos límites y origen del proyecto base
         im = ax.imshow(res['gradiente'], origin='lower', aspect='auto', extent=extent, 
                        cmap=cmap, vmin=-3, vmax=10)
         
         ax.set_title(f"Configuración: {res['nombre']}", fontsize=12, loc='left')
         ax.set_ylabel("Altitud [msnm]", fontsize=10)
         ax.set_ylim(ylim)
-        ax.set_facecolor('0.9') # Replicación visual de add_no_data
+        ax.set_facecolor('0.9') 
         ax.grid(True, linestyle='--', alpha=0.3)
 
     locator = mdates.AutoDateLocator()
@@ -87,18 +86,18 @@ def ejecutar_comparacion_gradientes():
 
         try:
             with leer_netcdf(ruta_muestra) as ds:
-                # Lectura de datos segura
-                ze_raw = ds['attenuated_radar_reflectivity'].values
-                vf_raw = ds['fall_velocity'].values
+                # BLINDAJE CONTRA TUPLES: Forzamos np.asarray()
+                ze_raw = np.asarray(ds['attenuated_radar_reflectivity'].values)
+                vf_raw = np.asarray(ds['fall_velocity'].values)
                 
-                # Extracción de altura replicada exactamente del Jupyter y blindada
-                h_vals = ds.height.values[0,:] if ds.height.ndim > 1 else ds.height.values
+                # Extracción de altura y desfase
+                h_vals = np.asarray(ds.height.values[0,:] if ds.height.ndim > 1 else ds.height.values)
                 altura_inicial_desfase = 500 + (h_vals[1] - h_vals[0]) / 2
                 h_ajustado = h_vals + altura_inicial_desfase
 
-                # Transposición controlada
-                ze_t = ze_raw.T if ze_raw.shape[0] == len(ds.time) else ze_raw
-                vf_t = vf_raw.T if vf_raw.shape[0] == len(ds.time) else vf_raw
+                # Transposición controlada y blindada 
+                ze_t = np.asarray(ze_raw.T if ze_raw.shape[0] == len(ds.time) else ze_raw)
+                vf_t = np.asarray(vf_raw.T if vf_raw.shape[0] == len(ds.time) else vf_raw)
 
                 ze_c, vf_c = filtrar_ruido(ze_t, vf_t)
 
@@ -117,6 +116,7 @@ def ejecutar_comparacion_gradientes():
                 print(f"   [OK] Lámina comparativa replicada.")
                 
         except Exception as e:
+            # Ahora capturará y te mostrará cualquier error, en lugar de crashear el script entero
             print(f"   [ERROR] Falló procesar el archivo {nombre}: {e}")
 
 if __name__ == '__main__':
