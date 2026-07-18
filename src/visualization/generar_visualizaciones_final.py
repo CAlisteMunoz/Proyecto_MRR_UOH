@@ -15,6 +15,7 @@ from matplotlib import colors, dates
 import proplot as pplt
 import xarray as xr
 
+warnings.filterwarnings("ignore", message="All-NaN slice encountered")
 warnings.filterwarnings("ignore")
 
 from config import DATA_RAW, PROJECT_ROOT
@@ -44,11 +45,6 @@ def ruido(Ze, Vf):
     return Ze_filtered, Vf_filtered
 
 def calcular_gradiente_fisico(datos, marco):
-    """
-    Cálculo de gradiente ponderado.
-    CORRECCIÓN FÍSICA: Se invierte la resta a (inferior - superior) 
-    para que la aceleración de caída sea un valor positivo.
-    """
     if marco == 1:
         pesos = np.array([1.0])
     else:
@@ -64,20 +60,16 @@ def calcular_gradiente_fisico(datos, marco):
     for i in range(marco, datos.shape[0] - marco):
         superior = np.sum([pesos[j] * datos[i + j, :] for j in range(marco)], axis=0)
         inferior = np.sum([pesos[j] * datos[i - j - 1, :] for j in range(marco)], axis=0)
-        
-        # FÍSICA: Aceleración positiva (Lluvia [mayor vel] - Nieve [menor vel])
         gradiente_datos[i - marco, :] = inferior - superior 
 
     filas_superior = marco
     filas_inferior = marco - 1
 
     gradiente_datos_completo = np.pad(gradiente_datos, ((filas_superior, filas_inferior), (0, 0)), mode='constant', constant_values=0)
-    
-    # Aseguramos que no haya artefactos negativos residuales extremos
     return np.maximum(gradiente_datos_completo, 0)
 
 # ==========================================
-# CÓDIGO EXACTO DE VISUALIZACIÓN PROPORCIONADO
+# CÓDIGO EXACTO DE VISUALIZACIÓN
 # ==========================================
 def plot_mrr3_imshow(xlim, times, heights, Ze, Vf=None, hora_local=False, ax=None,
               ytickloc='both', colorhex = paleta0):
@@ -118,101 +110,73 @@ def plot_mrr3_imshow(xlim, times, heights, Ze, Vf=None, hora_local=False, ax=Non
         if ax is None:
             fig, ax = pplt.subplots(refwidth=5, refaspect=3)
 
-        mZe = ax.imshow(Ze, origin='lower', aspect='auto',
-                        cmap=dbzmap, norm=norm,
-                        extent=extent)
+        mZe = ax.imshow(Ze, origin='lower', aspect='auto', cmap=dbzmap, norm=norm, extent=extent)
 
-        ax.format(ultitle='Reflectividad Equivalente',
-                  xrotation=False,
-                  xformatter='concise',
-                  xlocator=xlocator,
-                  xminorlocator=xminorlocator,
-                  ylim=ylim,
-                  yticklabelloc=ytickloc,
-                  ytickloc='both',
-                  xticklabelsize=8,
-                  suptitle='Gradientes datos MRR UOH',
-                  ylabel='Altitud [msnm]',
-                  xlabel=xlabel)
-
+        ax.format(ultitle='Reflectividad Equivalente', xrotation=False, xformatter='concise',
+                  xlocator=xlocator, xminorlocator=xminorlocator, ylim=ylim,
+                  yticklabelloc=ytickloc, ytickloc='both', xticklabelsize=8,
+                  suptitle='Gradientes datos MRR UOH', ylabel='Altitud [msnm]', xlabel=xlabel)
         ax.colorbar(mZe, loc='r', label='[dBZ]', length=0.7)
-
-        if xlim != '':
-            ax.format(xlim=xlim)
+        if xlim != '': ax.format(xlim=xlim)
 
     else:
         fig, ax = pplt.subplots(nrows=2, refwidth=5, refaspect=3)
 
-        mZe = ax[0].imshow(Ze, origin='lower', aspect='auto',
-                           cmap=dbzmap, norm=norm,
-                           extent=extent)
+        mZe = ax[0].imshow(Ze, origin='lower', aspect='auto', cmap=dbzmap, norm=norm, extent=extent)
         add_no_data(ax[0], times, xlim)
 
-        # CORRECCIÓN DE VISIBILIDAD: Ajustamos vmin y vmax a [-4, 4] 
-        # para que los valores positivos (1 a 4 m/s) saturen en azul profundo
-        mVf = ax[1].imshow(Vf, origin='lower', aspect='auto',
-                           vmin=-4, vmax=4,
-                           cmap='RdBu',
-                           extent=extent)
+        mVf = ax[1].imshow(Vf, origin='lower', aspect='auto', vmin=0, vmax=4, cmap='RdBu', extent=extent)
         add_no_data(ax[1], times, xlim)
 
-        ax[0].format(ultitle='Reflectividad Equivalente',
-                     xrotation=False,
-                     xformatter='concise',
-                     xlocator=xlocator,
-                     xminorlocator=xminorlocator,
-                     ylim=ylim,
-                     yticklabelloc='both',
-                     ytickloc='both',
-                     xticklabelsize=8,
-                     suptitle='Gradientes datos MRR UOH',
-                     ylabel='Altitud [msnm]',
-                     xlabel=xlabel)
-
+        ax[0].format(ultitle='Reflectividad Equivalente', xrotation=False, xformatter='concise',
+                     xlocator=xlocator, xminorlocator=xminorlocator, ylim=ylim,
+                     yticklabelloc='both', ytickloc='both', xticklabelsize=8,
+                     suptitle='Gradientes datos MRR UOH', ylabel='Altitud [msnm]', xlabel=xlabel)
         ax[0].colorbar(mZe, loc='r', label='[dBZ]', length=0.4)
 
-        ax[1].format(ultitle='Aceleración de caída (Gradiente)',
-                     xrotation=False,
-                     xformatter='concise',
-                     xlocator=xlocator,
-                     xminorlocator=xminorlocator,
-                     ylim=ylim,
-                     yticklabelloc='both',
-                     ytickloc='both',
-                     xticklabelsize=8)
-
-        ax[1].colorbar(mVf, loc='r', label='[m/s²]', length=0.4,
-                       extend='both')
+        ax[1].format(ultitle='Velocidad de caída', xrotation=False, xformatter='concise',
+                     xlocator=xlocator, xminorlocator=xminorlocator, ylim=ylim,
+                     yticklabelloc='both', ytickloc='both', xticklabelsize=8)
+        ax[1].colorbar(mVf, loc='r', label='[m/s]', length=0.4, extend='both')
 
         if xlim != '':
             ax[0].format(xlim=xlim)
             ax[1].format(xlim=xlim)
 
-    return fig # Modificado de fig.show() a return fig para permitir el guardado automático
+    return fig
 
 # ==========================================
-# MOTOR DE EJECUCIÓN
+# MOTOR DE EJECUCIÓN (10 EVENTOS DENSOS)
 # ==========================================
 def procesar_eventos():
-    print("=== INICIANDO: RENDERIZADO CON FÍSICA CORREGIDA Y ALTO CONTRASTE ===")
+    print("=== INICIANDO: PROCESAMIENTO DE 10 EVENTOS CON ALTA DENSIDAD DE DATOS ===")
     
     archivos = list(obtener_archivos_por_año(2023, DATA_RAW)) + list(obtener_archivos_por_año(2024, DATA_RAW))
     dir_pixeles = PROJECT_ROOT / "results" / "gradientes_pixeles"
     dir_ponderados = PROJECT_ROOT / "results" / "gradientes_ponderados"
     
+    dir_pixeles.mkdir(parents=True, exist_ok=True)
+    dir_ponderados.mkdir(parents=True, exist_ok=True)
+
     eventos_procesados = 0
+    max_eventos = 10
 
     for ruta in archivos:
-        if eventos_procesados >= 5: break # Procesar los 5 mejores eventos
-        
+        if eventos_procesados >= max_eventos:
+            print(f"\n=== SE ALCANZÓ EL LÍMITE DE {max_eventos} EVENTOS EXITOSAMENTE ===")
+            break
+
         try:
             with leer_netcdf(ruta) as ds:
                 Ze = ds['attenuated_radar_reflectivity']
-                if np.nansum(Ze.values > 15.0) < 50: 
+                
+                # Filtro estricto: Exigir al menos 1000 puntos de reflectividad > 12 dBZ
+                puntos_lluvia = np.count_nonzero(np.nan_to_num(Ze.values) > 12.0)
+                if np.isnan(Ze.values).all() or puntos_lluvia < 1000: 
                     continue
                     
                 nombre = ruta.stem
-                print(f">> Procesando Evento: {nombre}")
+                print(f">> Procesando Evento {eventos_procesados + 1}/{max_eventos}: {nombre} (Densidad: {puntos_lluvia} px válidos)")
                 
                 Vf = ds['fall_velocity']
                 new_time = pd.to_datetime(ds.time.values) if hasattr(ds, 'time') else pd.to_datetime(ds.indexes['time'].astype(str))
@@ -225,24 +189,18 @@ def procesar_eventos():
                 Vf_t = Vf_filtered.T if Vf_filtered.shape[0] == len(new_time) else Vf_filtered
                 Ze_t = Ze_filtered.T if Ze_filtered.shape[0] == len(new_time) else Ze_filtered
 
-                # 1. BUCLE DE PÍXELES (Múltiples Ventanas)
                 ventanas = [1, 3, 5, 7]
                 for marco in ventanas:
                     grad_vf = calcular_gradiente_fisico(Vf_t, marco)
-                    
-                    # Usamos tu función plot_mrr3_imshow exacta
                     fig = plot_mrr3_imshow(xlim, new_time, heights_ajustado, Ze_t, Vf=grad_vf, hora_local=False)
-                    
                     out_file = dir_pixeles / f"Gradiente_{marco}px_{nombre}.png"
                     fig.savefig(out_file, dpi=150, bbox_inches='tight')
                     plt.close(fig)
 
-                # 2. SECCIÓN PONDERADA (Ventana 5 con Ecuación)
                 grad_vf_pond = calcular_gradiente_fisico(Vf_t, 5)
                 fig_pond = plot_mrr3_imshow(xlim, new_time, heights_ajustado, Ze_t, Vf=grad_vf_pond, hora_local=False)
                 
-                # Obtener el eje inferior (Vf) para inyectar la ecuación
-                ax_vf = fig_pond.subplot(2) 
+                ax_vf = fig_pond.axes[1] 
                 ecuacion_texto = (
                     r"$\nabla V_i = \sum w_j V_{i-j-1} - \sum w_j V_{i+j}$" + "\n\n" +
                     r"$w_j = \frac{m-j}{\sum (m-k)}$"
@@ -255,7 +213,6 @@ def procesar_eventos():
                 fig_pond.savefig(out_pond, dpi=200, bbox_inches='tight')
                 plt.close(fig_pond)
                 
-                print(f"   [OK] Láminas generadas para {nombre}")
                 eventos_procesados += 1
                 
         except Exception as e:
